@@ -1,4 +1,4 @@
-use crate::shm::SharedMemory;
+use crate::sharedmem::SharedMemory;
 use nix::errno::Errno;
 use libc::{sem_init, sem_post, sem_wait, sem_t};
 use std::mem::MaybeUninit;
@@ -85,8 +85,8 @@ impl<T> DerefMut for MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod test {
-    use crate::sem::Mutex;
-    use crate::shm::SharedMemory;
+    use crate::semaphore::Mutex;
+    use crate::sharedmem::SharedMemory;
     use nix::unistd::{fork, ForkResult};
 
     #[test]

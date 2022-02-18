@@ -1,2 +1,2 @@
-pub mod shm;
-pub mod sem;
+pub mod sharedmem;
+pub mod semaphore;
