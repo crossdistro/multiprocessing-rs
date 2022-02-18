@@ -89,20 +89,25 @@ mod test {
     use crate::sharedmem::SharedMemory;
     use nix::unistd::{fork, ForkResult};
 
+    struct Data {
+        array: [u8; 1024],
+    }
+
     #[test]
     fn mutex_works() {
-        let mut mutex = Mutex::new(SharedMemory::new([0xaa; 1024]).unwrap()).unwrap();
-        assert_eq!([0xaa; 1024], *mutex.lock().unwrap());
+        let data = Data { array: [0xaa; 1024] };
+        let mut mutex = Mutex::new(SharedMemory::new(data).unwrap()).unwrap();
+        assert_eq!([0xaa; 1024], mutex.lock().unwrap().array);
         let mut guard = mutex.lock().unwrap();
         match unsafe { fork().unwrap() } {
             ForkResult::Parent { child: _ } => {
                 // TODO: We do need to introduce a safe fork that allows you to do exactly these
                 // things.
                 std::mem::forget(guard);
-                assert_eq!([0x55; 1024], *mutex.lock().unwrap())
+                assert_eq!([0x55; 1024], mutex.lock().unwrap().array)
             }
             ForkResult::Child => {
-                *guard = [0x55; 1024];
+                guard.array = [0x55; 1024];
             }
         }
     }
