@@ -7,6 +7,7 @@ use std::os::raw::c_void;
 
 pub struct SharedMemory<T> {
     mem: *mut T,
+    cleanup: bool,
 }
 
 impl<T> SharedMemory<T> {
@@ -21,7 +22,7 @@ impl<T> SharedMemory<T> {
         let mem = unsafe { mmap(addr, size, prot, flags, fd, offset)?.cast::<T>() };
         close(fd).unwrap();
         unsafe { *mem = data; }
-        Ok(SharedMemory { mem })
+        Ok(SharedMemory { mem, cleanup: true })
     }
 
     pub fn as_ptr(&self) -> *mut T {
@@ -31,31 +32,33 @@ impl<T> SharedMemory<T> {
 
 impl<T> Drop for SharedMemory<T> {
     fn drop(&mut self) {
-        let size = std::mem::size_of::<T>();
-        unsafe { munmap(self.mem.cast::<c_void>(), size) }.unwrap();
+        if self.cleanup {
+            let size = std::mem::size_of::<T>();
+            unsafe { munmap(self.mem.cast::<c_void>(), size) }.unwrap();
+        }
     }
 }
 
+unsafe impl<T> Send for SharedMemory<T> {}
+
 #[cfg(test)]
 mod test {
-    use super::SharedMemory;
-    use nix::unistd::{fork, ForkResult};
-    use nix::sys::wait::{waitpid, WaitStatus};
+    use crate::sharedmem::SharedMemory;
+    use crate::process::spawn;
 
     #[test]
     fn works() {
         let mem = SharedMemory::new([0xaa; 1024]).unwrap();
         assert_eq!([0xaa; 1024], unsafe { *mem.as_ptr() });
-        match unsafe { fork().unwrap() } {
-            ForkResult::Parent { child } => {
-                let ret = waitpid(child, None).unwrap();
-                assert_eq!(ret, WaitStatus::Exited(child, 0));
-                assert_eq!([0x55; 1024], unsafe { *mem.as_ptr() });
-            }
-            ForkResult::Child => {
+        let success = {
+            let mut mem = SharedMemory { mem: mem.mem, cleanup: false };
+            spawn(move || {
+                mem.cleanup = true;
                 let data = unsafe { &mut *mem.as_ptr() };
                 *data = [0x55; 1024];
-            }
-        }
+            }).join().success()
+        };
+        assert!(success);
+        assert_eq!([0x55; 1024], unsafe { *mem.as_ptr() });
     }
 }

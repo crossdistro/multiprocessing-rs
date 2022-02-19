@@ -5,6 +5,11 @@ use std::process::exit;
 pub fn spawn<F>(f: F) -> JoinHandle
 where
     F: FnOnce(),
+    // TODO: Send was designed for threads and doesn't account for all the process specifics. It is
+    // often too strict as processes do not share the data structures any more. It might also be
+    // too loose as processes will fork the resources passed in the closure and double-clean them
+    // if they are actually shared between the processes.
+    F: Send,
 {
     match unsafe { fork().unwrap() } {
         ForkResult::Parent { child: pid } => {

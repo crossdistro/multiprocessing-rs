@@ -52,20 +52,25 @@ impl<T> Mutex<T> {
     }
 }
 
+unsafe impl<T> Sync for Mutex<T> {}
+
 pub struct MutexGuard<'a, T> {
     mutex: &'a mut Mutex<T>,
+    cleanup: bool,
 }
 
 impl<'a, T> MutexGuard<'a, T> {
     fn new(mutex: &'a mut Mutex<T>) -> Result<Self, Errno> {
         mutex.sem.down()?;
-        Ok(MutexGuard { mutex })
+        Ok(MutexGuard { mutex, cleanup: true })
     }
 }
 
 impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
-        self.mutex.sem.up().unwrap();
+        if self.cleanup {
+            self.mutex.sem.up().unwrap();
+        }
     }
 }
 
@@ -83,11 +88,14 @@ impl<T> DerefMut for MutexGuard<'_, T> {
     }
 }
 
+unsafe impl<T> Send for MutexGuard<'_, T> {}
+
 #[cfg(test)]
 mod test {
     use crate::semaphore::Mutex;
     use crate::sharedmem::SharedMemory;
-    use nix::unistd::{fork, ForkResult};
+    use crate::process::spawn;
+    use std::time::Duration;
 
     struct Data {
         array: [u8; 1024],
@@ -98,17 +106,21 @@ mod test {
         let data = Data { array: [0xaa; 1024] };
         let mut mutex = Mutex::new(SharedMemory::new(data).unwrap()).unwrap();
         assert_eq!([0xaa; 1024], mutex.lock().unwrap().array);
-        let mut guard = mutex.lock().unwrap();
-        match unsafe { fork().unwrap() } {
-            ForkResult::Parent { child: _ } => {
-                // TODO: We do need to introduce a safe fork that allows you to do exactly these
-                // things.
-                std::mem::forget(guard);
-                assert_eq!([0x55; 1024], mutex.lock().unwrap().array)
-            }
-            ForkResult::Child => {
+        let process = {
+            // Pre-lock the mutex only for the child.
+            let mut guard = mutex.lock().unwrap();
+            // TODO: Turn the cleanup blocker into a reasonable public API. The problem is that we
+            // fork the process and then we can only allow cleanup in the child and not in the
+            // parent.
+            guard.cleanup = false;
+            spawn(move || {
+                guard.cleanup = true;
+                std::thread::sleep(Duration::from_millis(100));
                 guard.array = [0x55; 1024];
-            }
-        }
+            })
+        };
+        assert_eq!([0x55; 1024], mutex.lock().unwrap().array);
+        let success = process.join().success();
+        assert!(success);
     }
 }
