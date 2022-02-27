@@ -1,6 +1,6 @@
 [package]
 name = "multiprocessing"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Pavel Šimerda <code@simerda.eu>"]
 edition = "2021"
 description = "An experimental crate for POSIX-based multiprocessing"
