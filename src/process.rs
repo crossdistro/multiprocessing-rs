@@ -66,4 +66,17 @@ mod test {
         assert!(success);
         assert!((-5..5).contains(&(diff.as_millis() as i32)));
     }
+
+    #[tokio::test]
+    async fn works_async() {
+        let duration = Duration::from_millis(100);
+        let process = spawn(|| {
+            std::thread::sleep(duration);
+        });
+        let start = Instant::now();
+        let success = tokio::task::spawn_blocking(|| process.join().success()).await.unwrap();
+        let diff = Instant::now() - start - duration;
+        assert!(success);
+        assert!((-5..5).contains(&(diff.as_millis() as i32)));
+    }
 }
